@@ -1,4 +1,4 @@
-package links
+package skills
 
 type Link struct {
     Skill uint16
