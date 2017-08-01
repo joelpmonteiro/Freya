@@ -5,7 +5,6 @@ import (
     "share/directory"
     "share/models/inventory"
     "share/models/skills"
-    "share/models/links"
     "share/logger"
     "gopkg.in/yaml.v2"
 )
@@ -24,7 +23,7 @@ type InitialData struct {
         Equipment map[string]inventory.Item
         Inventory map[int]inventory.Item
         Skills    map[int]skills.Skill
-        Links     map[int]links.Link
+        Links     map[int]skills.Link
     }
 }
 
