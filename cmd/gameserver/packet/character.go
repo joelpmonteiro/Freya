@@ -3,12 +3,37 @@ package packet
 import (
 	"bytes"
 
+	"github.com/ubis/Freya/cmd/gameserver/context"
 	"github.com/ubis/Freya/share/log"
 	"github.com/ubis/Freya/share/models/character"
 	"github.com/ubis/Freya/share/models/subpasswd"
 	"github.com/ubis/Freya/share/network"
 	"github.com/ubis/Freya/share/rpc"
 )
+
+// NewTargetUser Packet
+func NewTargetUser(session *network.Session, reader *network.Reader) {
+	sessionId := reader.ReadUint16()
+
+	pSession := g_NetworkManager.GetSession(sessionId)
+	ctx, err := context.Parse(pSession)
+	if err != nil {
+		log.Error(err.Error())
+		return
+	}
+
+	ctx.Mutex.RLock()
+	currentHP, maxHP := ctx.Char.CurrentHP, ctx.Char.MaxHP
+	ctx.Mutex.RUnlock()
+
+	var packet = network.NewWriter(NEW_TARGET_USER)
+
+	packet.WriteByte(0x00)
+	packet.WriteInt16(currentHP)
+	packet.WriteInt16(maxHP)
+
+	session.Send(packet)
+}
 
 // GetMyChartr Packet
 func GetMyChartr(session *network.Session, reader *network.Reader) {
@@ -26,7 +51,7 @@ func GetMyChartr(session *network.Session, reader *network.Reader) {
 	session.Data.SubPassword = &res.Details
 
 	var subpasswdExist = 0
-	if res.Password != "" {
+	if g_ServerConfig.IgnoreSubPassword || res.Password != "" {
 		subpasswdExist = 1
 	}
 
@@ -185,4 +210,213 @@ func SetCharacterSlotOrder(session *network.Session, reader *network.Reader) {
 	packet.WriteByte(0x01)
 
 	session.Send(packet)
+}
+
+func notifyChangeStyle(session *network.Session) {
+	ctx, err := context.Parse(session)
+	if err != nil {
+		log.Error(err.Error())
+		return
+	}
+
+	ctx.Mutex.RLock()
+	id := ctx.Char.Id
+	style := ctx.Char.Style
+	liveStyle := ctx.Char.LiveStyle
+	ctx.Mutex.RUnlock()
+
+	pkt := network.NewWriter(NFY_CHANGESTYLE)
+	pkt.WriteInt32(id)
+	pkt.WriteInt32(style.Get())
+	pkt.WriteInt32(liveStyle)
+	pkt.WriteInt32(0)
+	pkt.WriteInt16(0)
+
+	ctx.World.BroadcastSessionPacket(session, pkt)
+}
+
+func ChangeStyle(session *network.Session, reader *network.Reader) {
+	_ = reader.ReadInt32() // style
+	liveStyle := reader.ReadInt32()
+	_ = reader.ReadInt32() // buffFlag?
+	_ = reader.ReadInt16() // actionFlag?
+
+	ctx, err := context.Parse(session)
+	if err != nil {
+		log.Error(err.Error())
+		return
+	}
+
+	ctx.Mutex.Lock()
+	ctx.Char.LiveStyle = liveStyle
+	ctx.Mutex.Unlock()
+
+	pkt := network.NewWriter(CHANGESTYLE)
+	pkt.WriteByte(1)
+
+	session.Send(pkt)
+
+	notifyChangeStyle(session)
+}
+
+func SkillToActs(session *network.Session, reader *network.Reader) {
+	target := reader.ReadInt32() // self char id
+	action := reader.ReadUint16()
+	x := reader.ReadByte()
+	y := reader.ReadByte()
+
+	id, err := context.GetCharId(session)
+	if err != nil {
+		log.Error(err.Error())
+		return
+	}
+
+	ctx, err := context.Parse(session)
+	if err != nil {
+		log.Error(err.Error())
+		return
+	}
+
+	pkt := network.NewWriter(NFY_SKILLTOACTS)
+	pkt.WriteInt32(id)
+	pkt.WriteInt32(target)
+	pkt.WriteUint16(action)
+	pkt.WriteByte(x)
+	pkt.WriteByte(y)
+
+	ctx.World.BroadcastSessionPacket(session, pkt)
+}
+
+func SkillToUser(session *network.Session, reader *network.Reader) {
+	// seems like there are 2 types of messages
+	switch reader.Size {
+	case 19:
+		// astral & style related
+		handleStyleSkill(session, reader)
+	case 17:
+		// dash/fade & movement related
+		handleMoveSkill(session, reader)
+	}
+}
+
+func handleStyleSkill(session *network.Session, reader *network.Reader) {
+	skill := reader.ReadUint16()
+	_ = reader.ReadByte() // slot
+	unk1 := reader.ReadInt16()
+	unk2 := reader.ReadInt32()
+
+	ctx, err := context.Parse(session)
+	if err != nil {
+		log.Error(err.Error())
+		return
+	}
+
+	ctx.Mutex.RLock()
+	id := ctx.Char.Id
+	mp := ctx.Char.CurrentMP
+	style := ctx.Char.Style.Get()
+	liveStyle := ctx.Char.LiveStyle
+	ctx.Mutex.RUnlock()
+
+	pkt := network.NewWriter(SKILLTOUSER)
+	pkt.WriteUint16(skill)
+	pkt.WriteUint16(mp)
+	pkt.WriteInt16(unk1)
+	pkt.WriteInt32(unk2)
+
+	session.Send(pkt)
+
+	pkt = network.NewWriter(NFY_SKILLTOUSER)
+	pkt.WriteUint16(skill)
+	pkt.WriteUint32(id)
+	pkt.WriteUint32(style)
+	pkt.WriteByte(liveStyle)
+	pkt.WriteByte(0x02)
+	pkt.WriteInt16(unk1)
+	pkt.WriteInt32(unk2)
+
+	ctx.World.BroadcastSessionPacket(session, pkt)
+}
+
+func handleMoveSkill(session *network.Session, reader *network.Reader) {
+	skill := reader.ReadUint16()
+	_ = reader.ReadByte() // slot
+	x := reader.ReadInt16()
+	y := reader.ReadInt16()
+
+	ctx, err := context.Parse(session)
+	if err != nil {
+		log.Error(err.Error())
+		return
+	}
+
+	ctx.Mutex.Lock()
+	id := ctx.Char.Id
+	mp := ctx.Char.CurrentMP
+	ctx.Char.X = byte(x)
+	ctx.Char.Y = byte(y)
+	ctx.Char.BeginX = x
+	ctx.Char.BeginY = y
+	ctx.Char.EndX = x
+	ctx.Char.EndY = y
+	ctx.Mutex.Unlock()
+
+	pkt := network.NewWriter(SKILLTOUSER)
+	pkt.WriteUint16(skill)
+	pkt.WriteInt32(0)
+	pkt.WriteUint16(mp)
+
+	session.Send(pkt)
+
+	pkt = network.NewWriter(NFY_SKILLTOUSER)
+	pkt.WriteUint16(skill)
+	pkt.WriteUint32(id)
+	pkt.WriteUint16(session.UserIdx)
+	pkt.WriteInt16(0x1000)
+	pkt.WriteInt16(x)
+	pkt.WriteInt16(y)
+
+	ctx.World.BroadcastSessionPacket(session, pkt)
+	ctx.World.AdjustCell(session)
+}
+
+func GetPlayerLevel(session *network.Session) int {
+	ctx, err := context.Parse(session)
+	if err != nil {
+		log.Error(err.Error())
+		return 0
+	}
+
+	ctx.Mutex.RLock()
+	defer ctx.Mutex.RUnlock()
+
+	return int(ctx.Char.Level)
+}
+
+func SetPlayerLevel(session *network.Session, level int) {
+	ctx, err := context.Parse(session)
+	if err != nil {
+		log.Error(err.Error())
+		return
+	}
+
+	ctx.Mutex.RLock()
+	ctx.Char.Level = uint16(level)
+	id := ctx.Char.Id
+	ctx.Mutex.RUnlock()
+
+	pkt := network.NewWriter(288)
+	pkt.WriteByte(1) // 1 = level up; 2 = rank up
+	pkt.WriteInt32(id)
+
+	ctx.World.BroadcastSessionPacket(session, pkt)
+
+	pkt = network.NewWriter(287)
+	pkt.WriteByte(10) // 10 = level up
+	for i := 0; i < 14; i++ {
+		pkt.WriteByte(0)
+	}
+	pkt.WriteInt64(level)
+
+	session.Send(pkt)
 }

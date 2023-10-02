@@ -4,6 +4,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync"
 
 	"github.com/ubis/Freya/share/encryption"
 	"github.com/ubis/Freya/share/event"
@@ -22,7 +23,7 @@ type Session struct {
 	Encryption encryption.Encryption
 	UserIdx    uint16
 	AuthKey    uint32
-	Connected  bool
+	DataEx     any
 	Data       struct {
 		AccountId     int32 // database account id
 		Verified      bool  // version verification
@@ -31,14 +32,17 @@ type Session struct {
 		SubPassword   *subpasswd.Details
 		CharacterList []character.Character
 	}
+
+	PeriodicJobs map[string]*PeriodicTask
+	jobMutex     sync.Mutex
 }
 
 // Starts session goroutine
 func (s *Session) Start(table encryption.XorKeyTable) {
 	// create new receiving buffer
 	s.buffer = make([]byte, MAX_RECV_BUFFER_SIZE)
-
-	s.Connected = true
+	// create map to store periodic tasks
+	s.PeriodicJobs = make(map[string]*PeriodicTask)
 
 	// init encryption
 	s.Encryption = encryption.Encryption{}
@@ -81,7 +85,13 @@ func (s *Session) Start(table encryption.XorKeyTable) {
 			var reader = NewReader(data)
 
 			// create new packet event argument
-			var arg = &PacketArgs{s, int(reader.Size), int(reader.Type), reader}
+			arg := &PacketArgs{
+				Session: s,
+				Length:  int(reader.Size),
+				Type:    int(reader.Type),
+				Data:    data,
+				Reader:  reader,
+			}
 
 			// trigger packet received event
 			event.Trigger(event.PacketReceiveEvent, arg)
@@ -93,22 +103,30 @@ func (s *Session) Start(table encryption.XorKeyTable) {
 
 // Sends specified data to the client
 func (s *Session) Send(writer *Writer) {
+	data := writer.Finalize()
+
 	// encrypt data
-	var encrypt, err = s.Encryption.Encrypt(writer.Finalize())
+	encrypt, err := s.Encryption.Encrypt(data)
 	if err != nil {
 		log.Error("Error encrypting packet: " + err.Error())
 		return
 	}
 
 	// send it...
-	var length, err2 = s.socket.Write(encrypt)
-	if err2 != nil {
-		log.Error("Error sending packet: " + err2.Error())
+	length, err := s.socket.Write(encrypt)
+	if err != nil {
+		log.Error("Error sending packet: " + err.Error())
 		return
 	}
 
 	// create new packet event argument
-	var arg = &PacketArgs{s, length, writer.Type, nil}
+	arg := &PacketArgs{
+		Session: s,
+		Length:  length,
+		Type:    writer.Type,
+		Data:    data,
+		Reader:  nil,
+	}
 
 	// trigger packet sent event
 	event.Trigger(event.PacketSendEvent, arg)
@@ -125,9 +143,55 @@ func (s *Session) GetIp() string {
 	return ip[0]
 }
 
+// GetLocalEndPntIp returns local end point IP address.
+// Local end point is server to which session is connected to.
+func (s *Session) GetLocalEndPntIp() string {
+	pnt := s.socket.LocalAddr().String()
+	ip := strings.Split(pnt, ":")
+	return ip[0]
+}
+
+// IsLocal checks if session's remote endpoint originated from private network.
+func (s *Session) IsLocal() bool {
+	return net.IP.IsPrivate(net.ParseIP(s.GetIp()))
+}
+
 // Closes session socket
 func (s *Session) Close() {
-	s.Connected = false
+	s.RemoveAllJobs()
 	s.socket.Close()
 	event.Trigger(event.ClientDisconnectEvent, s)
+}
+
+// AddJob adds a periodic task to the session's job list in a thread-safe manner.
+// The job can be referenced and managed by its name.
+func (s *Session) AddJob(name string, task *PeriodicTask) {
+	s.jobMutex.Lock()
+	defer s.jobMutex.Unlock()
+
+	s.PeriodicJobs[name] = task
+}
+
+// RemoveJob stops and removes a periodic task from the session's job list
+// based on its name in a thread-safe manner.
+func (s *Session) RemoveJob(name string) {
+	s.jobMutex.Lock()
+	defer s.jobMutex.Unlock()
+
+	if job, exists := s.PeriodicJobs[name]; exists {
+		job.Stop()
+		delete(s.PeriodicJobs, name)
+	}
+}
+
+// RemoveAllJobs stops all periodic tasks and clears the job list
+// for the session in a thread-safe manner.
+func (s *Session) RemoveAllJobs() {
+	s.jobMutex.Lock()
+	defer s.jobMutex.Unlock()
+
+	for name, job := range s.PeriodicJobs {
+		job.Stop()
+		delete(s.PeriodicJobs, name)
+	}
 }

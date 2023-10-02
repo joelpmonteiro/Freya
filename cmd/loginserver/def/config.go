@@ -11,6 +11,7 @@ type Config struct {
 
 	Version            int
 	MagicKey           int
+	IgnoreVersionCheck bool
 	CashWeb_URL        string
 	CashWeb_Odc_URL    string
 	CashWeb_Charge_URL string
@@ -19,6 +20,8 @@ type Config struct {
 
 	MasterIp   string
 	MasterPort int
+
+	ScriptDirectory string
 }
 
 // Attempts to read server configuration file
@@ -37,6 +40,7 @@ func (c *Config) Read() {
 
 	c.Version = conf.GetInt("client", "client_version", 0)
 	c.MagicKey = conf.GetInt("client", "magic_key", 0)
+	c.IgnoreVersionCheck = conf.GetBool("client", "ignore_client_version", false)
 	c.CashWeb_URL = conf.GetString("client", "cashweb_url", "")
 	c.CashWeb_Odc_URL = conf.GetString("client", "cashweb_odc_url", "")
 	c.CashWeb_Charge_URL = conf.GetString("client", "cashweb_charge_url", "")
@@ -45,4 +49,6 @@ func (c *Config) Read() {
 
 	c.MasterIp = conf.GetString("master", "ip", "1270.0.1")
 	c.MasterPort = conf.GetInt("master", "port", 9001)
+
+	c.ScriptDirectory = conf.GetString("script", "directory", "")
 }

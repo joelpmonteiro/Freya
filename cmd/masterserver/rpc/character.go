@@ -6,6 +6,7 @@ import (
 	"github.com/ubis/Freya/share/log"
 	"github.com/ubis/Freya/share/models/character"
 	"github.com/ubis/Freya/share/models/inventory"
+	"github.com/ubis/Freya/share/models/skills"
 	"github.com/ubis/Freya/share/rpc"
 
 	"github.com/jmoiron/sqlx"
@@ -23,7 +24,9 @@ func LoadCharacters(_ *rpc.Client, r *character.ListReq, s *character.ListRes) e
 
 	var rows, err = db.Queryx(
 		"SELECT "+
-			"id, name, level, world, x, y, alz, nation, sword_rank, magic_rank, created "+
+			"id, name, level, world, x, y, alz, nation, sword_rank, magic_rank, "+
+			"current_hp, max_hp, current_mp, max_mp, current_sp, max_sp, str_stat, "+
+			"int_stat, dex_stat, pnt_stat, exp, war_exp, created "+
 			"FROM characters "+
 			"WHERE id >= ? AND id <= ?", r.Account*8, r.Account*8+5)
 
@@ -192,7 +195,7 @@ func CreateCharacter(_ *rpc.Client, r *character.CreateReq, s *character.CreateR
 		value.Slot = uint16(key)
 		db.MustExec("INSERT INTO characters_quickslots "+
 			"(id, skill, slot) VALUES (?, ?, ?)",
-			c.Id, value.Slot, value.Slot,
+			c.Id, value.Skill, value.Slot,
 		)
 	}
 
@@ -246,4 +249,113 @@ func SetSlotOrder(_ *rpc.Client, r *character.SetOrderReq, s *character.SetOrder
 
 	*s = res
 	return nil
+}
+
+// LoadCharacterData RPC Call
+func LoadCharacterData(c *rpc.Client, r *character.DataReq, s *character.DataRes) error {
+	var db = g_DatabaseManager.Get(r.Server)
+	var res = character.DataRes{}
+
+	if db == nil {
+		*s = res
+		return nil
+	}
+
+	// load data
+	res.Inventory = LoadInventory(db, r.Id)
+	res.Skills = LoadSkills(db, r.Id)
+	res.Links = LoadLinks(db, r.Id)
+
+	*s = res
+	return nil
+}
+
+// LoadInventory Database Call
+func LoadInventory(db *sqlx.DB, id int32) inventory.Inventory {
+	var inv = inventory.Inventory{}
+	inv.Init()
+
+	var rows, err = db.Queryx(
+		"SELECT kind, serials, opt, slot, expire "+
+			"FROM characters_inventory "+
+			"WHERE id = ?", id)
+
+	// iterate over each row
+	for rows.Next() {
+		var i = inventory.Item{}
+		var err2 = rows.StructScan(&i)
+
+		if err2 == nil {
+			inv.Set(i.Slot, i)
+		} else {
+			log.Error("[DATABASE]", err2)
+			return inv
+		}
+	}
+
+	if err != nil {
+		log.Error("[DATABASE]", err)
+	}
+
+	return inv
+}
+
+// LoadSkills Database Call
+func LoadSkills(db *sqlx.DB, id int32) skills.SkillList {
+	var list = skills.SkillList{}
+	list.Init()
+
+	var rows, err = db.Queryx(
+		"SELECT skill, level, slot "+
+			"FROM characters_skills "+
+			"WHERE id = ?", id)
+
+	// iterate over each row
+	for rows.Next() {
+		var s = skills.Skill{}
+		var err2 = rows.StructScan(&s)
+
+		if err2 == nil {
+			list.Set(s.Slot, s)
+		} else {
+			log.Error("[DATABASE]", err2)
+			return list
+		}
+	}
+
+	if err != nil {
+		log.Error("[DATABASE]", err)
+	}
+
+	return list
+}
+
+// LoadLinks Database Call
+func LoadLinks(db *sqlx.DB, id int32) skills.Links {
+	var list = skills.Links{}
+	list.Init()
+
+	var rows, err = db.Queryx(
+		"SELECT skill, slot "+
+			"FROM characters_quickslots "+
+			"WHERE id = ?", id)
+
+	// iterate over each row
+	for rows.Next() {
+		var l = skills.Link{}
+		var err2 = rows.StructScan(&l)
+
+		if err2 == nil {
+			list.Set(l.Slot, l)
+		} else {
+			log.Error("[DATABASE]", err2)
+			return list
+		}
+	}
+
+	if err != nil {
+		log.Error("[DATABASE]", err)
+	}
+
+	return list
 }

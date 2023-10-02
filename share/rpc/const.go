@@ -24,8 +24,19 @@ const (
 
 // Character related RPC's
 const (
-	LoadCharacters  = "LoadCharacters"
-	CreateCharacter = "CreateCharacter"
-	DeleteCharacter = "DeleteCharacter"
-	SetSlotOrder    = "SetSlotOrder"
+	LoadCharacters    = "LoadCharacters"
+	CreateCharacter   = "CreateCharacter"
+	DeleteCharacter   = "DeleteCharacter"
+	SetSlotOrder      = "SetSlotOrder"
+	LoadCharacterData = "LoadCharacterData"
+)
+
+const (
+	ChangeEquipItemSlot     = "ChangeEquipItemSlot"
+	UnEquipItem             = "UnEquipItem"
+	EquipItem               = "EquipItem"
+	ChangeInventoryItemSlot = "ChangeInventoryItemSlot"
+	PickItem                = "PickItem"
+	DropItem                = "DropItem"
+	SwapItem                = "SwapItem"
 )

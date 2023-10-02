@@ -31,4 +31,13 @@ func RegisterPackets() {
 	g_RPCHandler.Register(rpc.CreateCharacter, CreateCharacter)
 	g_RPCHandler.Register(rpc.DeleteCharacter, DeleteCharacter)
 	g_RPCHandler.Register(rpc.SetSlotOrder, SetSlotOrder)
+	g_RPCHandler.Register(rpc.LoadCharacterData, LoadCharacterData)
+
+	g_RPCHandler.Register(rpc.EquipItem, EquipItem)
+	g_RPCHandler.Register(rpc.UnEquipItem, UnEquipItem)
+	g_RPCHandler.Register(rpc.ChangeEquipItemSlot, ChangeEquipItemSlot)
+	g_RPCHandler.Register(rpc.ChangeInventoryItemSlot, ChangeInventoryItemSlot)
+	g_RPCHandler.Register(rpc.PickItem, PickItem)
+	g_RPCHandler.Register(rpc.DropItem, DropItem)
+	g_RPCHandler.Register(rpc.SwapItem, SwapItem)
 }

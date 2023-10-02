@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/ubis/Freya/share/event"
 	"github.com/ubis/Freya/share/log"
@@ -79,8 +80,9 @@ func (n *Network) Init(port int, s *server.Settings) {
 		}
 
 		n.lock.Lock()
-		n.clients[n.userIdx] = &session // add new session
-		session.UserIdx = n.userIdx     // update session user index
+		n.clients[n.userIdx] = &session             // add new session
+		session.UserIdx = n.userIdx                 // update session user index
+		session.AuthKey = uint32(time.Now().Unix()) // set auth key
 		n.userIdx++
 		n.lock.Unlock()
 
@@ -101,6 +103,21 @@ func (n *Network) GetOnlineUsers() int {
 	return users
 }
 
+// GetSession finds and returns session by user index.
+// If no session is found, nil is returned.
+func (n *Network) GetSession(idx uint16) *Session {
+	n.lock.RLock()
+	for _, value := range n.clients {
+		if value.UserIdx == idx {
+			n.lock.RUnlock()
+			return value
+		}
+	}
+	n.lock.RUnlock()
+
+	return nil
+}
+
 // Verifies user specified by index, key and sets it's database index
 func (n *Network) VerifyUser(i uint16, k uint32, ip string, db_idx int32) bool {
 	n.lock.Lock()
@@ -119,14 +136,14 @@ func (n *Network) VerifyUser(i uint16, k uint32, ip string, db_idx int32) bool {
 // Sends packet to session by it's index
 func (n *Network) SendToUser(i uint16, writer *Writer) bool {
 	n.lock.RLock()
-	var session = n.clients[i]
-	if session != nil && session.Connected {
+	defer n.lock.RUnlock()
+
+	session, ok := n.clients[i]
+	if ok {
 		session.Send(writer)
-		n.lock.RUnlock()
 		return true
 	}
 
-	n.lock.RUnlock()
 	return false
 }
 
@@ -161,15 +178,18 @@ func (n *Network) CloseUser(i uint16) bool {
 }
 
 // onClientDisconnect event informs server about disconnected client
-func (n *Network) onClientDisconnect(event event.Event) {
-	var session, err = event.(*Session)
-	if err != true {
-		log.Error("Couldn't parse onClientDisconnect event!")
+func (n *Network) onClientDisconnect(e *event.Event) {
+	rawSession, ok := e.Get()
+	if !ok {
+		return
+	}
+
+	session, ok := rawSession.(*Session)
+	if !ok {
 		return
 	}
 
 	n.lock.Lock()
 	delete(n.clients, session.UserIdx)
-	session = nil
 	n.lock.Unlock()
 }

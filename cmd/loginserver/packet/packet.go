@@ -3,6 +3,7 @@ package packet
 import (
 	"github.com/ubis/Freya/cmd/loginserver/def"
 	"github.com/ubis/Freya/share/log"
+	"github.com/ubis/Freya/share/script"
 )
 
 var g_ServerConfig = def.ServerConfig
@@ -25,4 +26,9 @@ func RegisterPackets() {
 	pk.Register(URLTOCLIENT, "URLToClient", nil)
 	pk.Register(PUBLIC_KEY, "PublicKey", PublicKey)
 	pk.Register(PRE_SERVER_ENV_REQUEST, "PreServerEnvRequest", PreServerEnvRequest)
+}
+
+func RegisterFunc() {
+	script.RegisterFunc("sendClientPacket", sessionPacketFunc{})
+	script.RegisterFunc("sendClientMessage", clientMessageFunc{Fn: SystemMessgEx})
 }

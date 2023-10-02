@@ -2,9 +2,11 @@ package main
 
 import (
 	"github.com/ubis/Freya/cmd/gameserver/def"
+	"github.com/ubis/Freya/cmd/gameserver/game"
 	"github.com/ubis/Freya/cmd/gameserver/packet"
 	"github.com/ubis/Freya/cmd/gameserver/rpc"
 	"github.com/ubis/Freya/share/log"
+	"github.com/ubis/Freya/share/script"
 )
 
 // globals
@@ -20,11 +22,20 @@ func main() {
 	// read config
 	g_ServerConfig.Read()
 
+	game := &game.WorldManager{}
+	game.Initialize()
+
 	// set server settings
 	g_ServerSettings.XorKeyTable.Init()
 
 	// register events
-	RegisterEvents()
+	RegisterEvents(game)
+
+	// register scripting engine
+	script.Initialize(g_ServerConfig.ScriptDirectory)
+
+	// register scripting functions
+	packet.RegisterFunc()
 
 	// init packet handler
 	g_PacketHandler.Init()
